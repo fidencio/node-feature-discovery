@@ -160,6 +160,11 @@ spec:
                   description: Rule defines a rule for node customization such as
                     labeling.
                   properties:
+                    extendedResources:
+                      additionalProperties:
+                        type: string
+                      description: FooBar
+                      type: object
                     labels:
                       additionalProperties:
                         type: string
