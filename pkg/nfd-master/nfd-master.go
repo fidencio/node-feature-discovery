@@ -509,7 +509,8 @@ func (m *nfdMaster) SetLabels(c context.Context, r *pb.SetLabelsRequest) (*pb.Se
 		annotations := Annotations{m.instanceAnnotation(nfdv1alpha1.WorkerVersionAnnotation): r.NfdVersion}
 
 		// Create labels et al
-		if err := m.refreshNodeFeatures(cli, r.NodeName, annotations, r.GetLabels(), r.GetFeatures()); err != nil {
+		// FIDENCIO: passing nil here is really the correct approach?
+		if err := m.refreshNodeFeatures(cli, r.NodeName, annotations, nil, r.GetLabels(), r.GetFeatures()); err != nil {
 			return &pb.SetLabelsReply{}, err
 		}
 	}
@@ -598,30 +599,38 @@ func (m *nfdMaster) nfdAPIUpdateOneNode(nodeName string) error {
 	if err != nil {
 		return err
 	}
-	if err := m.refreshNodeFeatures(cli, nodeName, annotations, features.Labels, &features.Features); err != nil {
+	if err := m.refreshNodeFeatures(cli, nodeName, annotations, nil, features.Labels, &features.Features); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (m *nfdMaster) refreshNodeFeatures(cli *kubernetes.Clientset, nodeName string, annotations, labels map[string]string, features *nfdv1alpha1.Features) error {
+func (m *nfdMaster) refreshNodeFeatures(cli *kubernetes.Clientset, nodeName string, annotations, extendedResources map[string]string, labels map[string]string, features *nfdv1alpha1.Features) error {
+	if extendedResources == nil {
+		extendedResources = make(map[string]string)
+	}
+
 	if labels == nil {
 		labels = make(map[string]string)
 	}
 
-	crLabels, crTaints := m.processNodeFeatureRule(features)
+	crExtendedResources, crLabels, crTaints := m.processNodeFeatureRule(features)
 
 	// Mix in CR-originated labels
 	for k, v := range crLabels {
 		labels[k] = v
 	}
 
-	labels, extendedResources := m.filterFeatureLabels(labels)
+	labels, extendedResources = m.filterFeatureLabels(labels)
 
 	var taints []corev1.Taint
 	if m.args.EnableTaints {
 		taints = crTaints
+	}
+
+	for k, v := range crExtendedResources {
+		extendedResources[k] = v
 	}
 
 	err := m.updateNodeObject(cli, nodeName, labels, annotations, extendedResources, taints)
@@ -738,11 +747,12 @@ func authorizeClient(c context.Context, checkNodeName bool, nodeName string) err
 	return nil
 }
 
-func (m *nfdMaster) processNodeFeatureRule(features *nfdv1alpha1.Features) (map[string]string, []corev1.Taint) {
+func (m *nfdMaster) processNodeFeatureRule(features *nfdv1alpha1.Features) (map[string]string, map[string]string, []corev1.Taint) {
 	if m.nfdController == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 
+	extendedResources := make(map[string]string)
 	labels := make(map[string]string)
 	var taints []corev1.Taint
 	ruleSpecs, err := m.nfdController.ruleLister.List(label.Everything())
@@ -752,7 +762,7 @@ func (m *nfdMaster) processNodeFeatureRule(features *nfdv1alpha1.Features) (map[
 
 	if err != nil {
 		klog.Errorf("failed to list NodeFeatureRule resources: %v", err)
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	// Process all rule CRs
@@ -774,6 +784,9 @@ func (m *nfdMaster) processNodeFeatureRule(features *nfdv1alpha1.Features) (map[
 			for k, v := range ruleOut.Labels {
 				labels[k] = v
 			}
+			for k, v :=range ruleOut.ExtendedResources {
+				extendedResources[k] = v
+			}
 
 			// Feed back rule output to features map for subsequent rules to match
 			features.InsertAttributeFeatures(nfdv1alpha1.RuleBackrefDomain, nfdv1alpha1.RuleBackrefFeature, ruleOut.Labels)
@@ -781,7 +794,7 @@ func (m *nfdMaster) processNodeFeatureRule(features *nfdv1alpha1.Features) (map[
 		}
 	}
 
-	return labels, taints
+	return extendedResources, labels, taints
 }
 
 // updateNodeObject ensures the Kubernetes node object is up to date,
