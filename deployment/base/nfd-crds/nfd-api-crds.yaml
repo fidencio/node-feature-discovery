@@ -36,6 +36,11 @@ spec:
           spec:
             description: NodeFeatureSpec describes a NodeFeature object.
             properties:
+              extendedResources:
+                additionalProperties:
+                  type: string
+                description: FooBar
+                type: object
               features:
                 description: Features is the full "raw" features data that has been
                   discovered.

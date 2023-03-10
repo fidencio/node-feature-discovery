@@ -51,6 +51,9 @@ type NodeFeatureSpec struct {
 	// Labels is the set of node labels that are requested to be created.
 	// +optional
 	Labels map[string]string `json:"labels"`
+	// FooBar
+	// +optional
+	ExtendedResources map[string]string `json:"extendedResources"`
 }
 
 // Features is the collection of all discovered features.
